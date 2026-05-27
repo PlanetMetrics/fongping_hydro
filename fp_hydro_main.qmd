@@ -4,15 +4,34 @@ format: pdf
 editor: visual
 ---
 
-## Quarto
+## QUARTO
 
 ```{r}
 #| echo: false
 ```
 
-# input package and data
+# INPUT
 
-## input flow data 
+## PACKAGE
+```{r}
+packages <- name listing 
+
+install if you dont 
+
+libraray(packages)
+```
+
+## READ DATA
+```{r}
+read here (data/**flowdata name notsure**.csv) # 10 days running average flow, might have other data
+
+# might need to pull in other data
+```
+
+## MODULES
+```{r}
+read module (here(module))
+```
 
 # baseline
 
