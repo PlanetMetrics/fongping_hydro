@@ -2,6 +2,7 @@
 
 # 1) energy_production.R
 # ------------------------
+# Contract 
 #   Inputs:
 #     power_flows      : numeric   daily flow through turbines (m^3/day)
 #     reservoir_height : numeric   hydraulic head (m)
@@ -34,6 +35,7 @@ energy_production <- function(power_flows, height, rho=1000, g=9.8,
 
 # 2) money_value.R
 # -------------
+# Contract 
 #   Inputs:
 #     daily_kwh     : numeric   daily energy generated (kWh)
 #     price_per_kwh : numeric   electricity sale price ($/kWh)
@@ -56,6 +58,7 @@ money_value = function(daily_kwh, price_per_kwh) {
 
 # 3) npv_profits.R
 # -------------
+# Contract 
 #   Inputs:
 #     yearly_profit : numeric  profit produced in year 1 ($)
 #     discount_rate : numeric  annual discount rate (i.e. 0.05)
