@@ -1,0 +1,643 @@
+# Hydrological Variability Assessment of Lishan Streamflow
+
+## Notation and Data Structure
+
+This analysis evaluates long-term hydrological variability using ten-day average streamflow records from the Lishan Hydrological Station.
+
+**Notation**
+
+- `cms`: Streamflow in cubic meters per second.
+- `tendays`: Ten-day period index within each year.
+- `EIA`: Original Environmental Impact Assessment reference period.
+- `EIA Difference`: Environmental Impact Assessment Difference / amendment reference period.
+- `Current`: Most recent comparison period.
+- Each year contains 36 ten-day observations.
+- Year columns are already stored in Gregorian / CE format in the CSV file, such as `1959`, `1960`, ..., `2019`.
+
+**Period Definitions**
+
+| Period Label | Year Range | Description |
+|---|---:|---|
+| `EIA` | 1959–1995 | Original EIA reference period |
+| `EIA Difference` | 1969–2005 | EIA Difference / amendment reference period |
+| `Current` | 1983–2019 | Recent comparison period |
+
+## Packages
+
+```{r}
+#| message: false
+#| warning: false
+
+packages <- c(
+  "tidyverse",
+  "here",
+  "car"
+)
+
+installed_packages <- rownames(installed.packages())
+
+for (pkg in packages) {
+  if (!pkg %in% installed_packages) {
+    install.packages(pkg)
+  }
+}
+
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+## Read Data
+
+```{r}
+#| message: false
+#| warning: false
+
+flow_data <- read_csv(
+  here("data", "lishan_flow.csv")
+)
+
+glimpse(flow_data)
+```
+
+## Check Data Structure
+
+```{r}
+# Check number of ten-day observations
+nrow(flow_data)
+
+# Check number of columns
+# Expected: 1 tendays column + year columns
+ncol(flow_data)
+
+# Extract year columns
+year_cols <- names(flow_data)[-1]
+
+# Check first and last year
+year_cols[1]
+year_cols[length(year_cols)]
+```
+
+## Annual Ten-Day Streamflow Distribution
+
+```{r}
+#| fig.width: 11
+#| fig.height: 6
+#| fig.cap: "Annual distribution of ten-day average streamflow at Lishan Hydrological Station. Boxes represent the within-year distribution of ten-day streamflow values. The red annotation indicates the EIA reference period, while the blue annotation indicates the EIA Difference reference period."
+
+# Remove tendays column for plotting
+flow_matrix <- flow_data[, -1]
+
+# Convert year column names to numeric years
+years <- as.numeric(year_cols)
+
+# Main boxplot
+boxplot(
+  flow_matrix,
+  outline = FALSE,
+  xaxt = "n",
+  yaxt = "n",
+  xlab = "Year",
+  ylab = "Ten-day Average Streamflow (cms)",
+  main = "Hydrological Variability of Lishan Ten-day Average Streamflow",
+  xlim = c(-1, length(years) + 1),
+  ylim = c(0, 70),
+  col = "grey90",
+  border = "grey40"
+)
+
+# X-axis minor tick marks
+axis(
+  side = 1,
+  at = seq_along(years),
+  labels = rep("", length(years)),
+  col = "grey70"
+)
+
+# X-axis major year labels every five years
+axis(
+  side = 1,
+  at = seq(1, length(years), 5),
+  labels = years[seq(1, length(years), 5)]
+)
+
+# Y-axis minor tick marks
+axis(
+  side = 2,
+  at = seq(0, 70, 5),
+  labels = rep("", length(seq(0, 70, 5))),
+  col = "grey70"
+)
+
+# Y-axis major labels
+axis(
+  side = 2,
+  at = seq(0, 70, 10),
+  labels = seq(0, 70, 10),
+  las = 1
+)
+
+# Add horizontal grid lines
+abline(
+  h = seq(0, 70, 10),
+  col = "grey85",
+  lty = "dotted"
+)
+
+# Re-draw boxplot above grid lines
+boxplot(
+  flow_matrix,
+  outline = FALSE,
+  xaxt = "n",
+  yaxt = "n",
+  add = TRUE,
+  col = "grey90",
+  border = "grey40"
+)
+
+# Annual median trend line
+lines(
+  x = seq_along(years),
+  y = apply(flow_matrix, 2, median, na.rm = TRUE),
+  col = "grey20",
+  lwd = 3
+)
+
+# Period index positions
+eia_start <- which(years == 1959)
+eia_end   <- which(years == 1995)
+
+eia_diff_start <- which(years == 1969)
+eia_diff_end   <- which(years == 2005)
+
+current_start <- which(years == 1983)
+current_end   <- which(years == 2019)
+
+# EIA annotation
+text(
+  x = mean(c(eia_start, eia_end)),
+  y = 4,
+  labels = "EIA\n1959–1995",
+  col = "lightcoral",
+  cex = 0.9
+)
+
+lines(
+  x = c(eia_start, eia_end),
+  y = c(1.5, 1.5),
+  col = "lightcoral",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_start, eia_start),
+  y = c(0.5, 2.5),
+  col = "lightcoral",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_end, eia_end),
+  y = c(0.5, 2.5),
+  col = "lightcoral",
+  lwd = 3
+)
+
+# EIA Difference annotation
+text(
+  x = mean(c(eia_diff_start, eia_diff_end)),
+  y = 8,
+  labels = "EIA Difference\n1969–2005",
+  col = "royalblue",
+  cex = 0.9
+)
+
+lines(
+  x = c(eia_diff_start, eia_diff_end),
+  y = c(5.5, 5.5),
+  col = "royalblue",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_diff_start, eia_diff_start),
+  y = c(4.5, 6.5),
+  col = "royalblue",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_diff_end, eia_diff_end),
+  y = c(4.5, 6.5),
+  col = "royalblue",
+  lwd = 3
+)
+
+# Optional current period annotation
+text(
+  x = mean(c(current_start, current_end)),
+  y = 12,
+  labels = "Current\n1983–2019",
+  col = "darkgreen",
+  cex = 0.9
+)
+
+lines(
+  x = c(current_start, current_end),
+  y = c(9.5, 9.5),
+  col = "darkgreen",
+  lwd = 3
+)
+
+lines(
+  x = c(current_start, current_start),
+  y = c(8.5, 10.5),
+  col = "darkgreen",
+  lwd = 3
+)
+
+lines(
+  x = c(current_end, current_end),
+  y = c(8.5, 10.5),
+  col = "darkgreen",
+  lwd = 3
+)
+
+# Legend
+legend(
+  "topright",
+  legend = c(
+    "Annual median",
+    "EIA: 1959–1995",
+    "EIA Difference: 1969–2005",
+    "Current: 1983–2019"
+  ),
+  col = c("grey20", "lightcoral", "royalblue", "darkgreen"),
+  lwd = c(3, 3, 3, 3),
+  bty = "n"
+)
+```
+
+```{r}
+#| fig.width: 11
+#| fig.height: 6
+#| fig.cap: "Annual distribution of ten-day average streamflow at Lishan Hydrological Station. Boxes represent the within-year distribution of ten-day streamflow values. Colored annotations at the bottom indicate the EIA, EIA Difference, and Current reference periods."
+
+# Slightly enlarge left and bottom margins for annotations
+par(mar = c(5, 6, 4, 2) + 0.1)
+
+# Remove tendays column for plotting
+flow_matrix <- flow_data[, -1]
+
+# Convert year column names to numeric years
+years <- as.numeric(year_cols)
+
+# Main boxplot
+boxplot(
+  flow_matrix,
+  outline = FALSE,
+  xaxt = "n",
+  yaxt = "n",
+  xlab = "Year",
+  ylab = "Ten-day Average Streamflow (cms)",
+  main = "Hydrological Variability of Lishan Ten-day Average Streamflow",
+  xlim = c(-1, length(years) + 1),
+  ylim = c(0, 70),
+  col = "grey90",
+  border = "grey40"
+)
+
+# X-axis minor tick marks
+axis(
+  side = 1,
+  at = seq_along(years),
+  labels = rep("", length(years)),
+  col = "grey70"
+)
+
+# X-axis major year labels every five years
+axis(
+  side = 1,
+  at = seq(1, length(years), 5),
+  labels = years[seq(1, length(years), 5)]
+)
+
+# Y-axis minor tick marks
+axis(
+  side = 2,
+  at = seq(0, 70, 5),
+  labels = rep("", length(seq(0, 70, 5))),
+  col = "grey70"
+)
+
+# Y-axis major labels
+axis(
+  side = 2,
+  at = seq(0, 70, 10),
+  labels = seq(0, 70, 10),
+  las = 1
+)
+
+# Add horizontal grid lines
+abline(
+  h = seq(0, 70, 10),
+  col = "grey85",
+  lty = "dotted"
+)
+
+# Re-draw boxplot above grid lines
+boxplot(
+  flow_matrix,
+  outline = FALSE,
+  xaxt = "n",
+  yaxt = "n",
+  add = TRUE,
+  col = "grey90",
+  border = "grey40"
+)
+
+# Annual median trend line
+lines(
+  x = seq_along(years),
+  y = apply(flow_matrix, 2, median, na.rm = TRUE),
+  col = "grey20",
+  lwd = 3
+)
+
+# Period index positions
+eia_start <- which(years == 1959)
+eia_end   <- which(years == 1995)
+
+eia_diff_start <- which(years == 1969)
+eia_diff_end   <- which(years == 2005)
+
+current_start <- which(years == 1983)
+current_end   <- which(years == 2019)
+
+# Bottom annotation y positions
+y_eia      <- 2
+y_eia_diff <- 5
+y_current  <- 8
+
+# Left-side labels
+# text(x = 0.3, y = y_eia, labels = "EIA\n1959–1995", col = "lightcoral", cex = 0.9, adj = c(0, 0.5) )
+
+# text( x = 0.3, y = y_eia_diff, labels = "EIA Difference\n1969–2005", col = "royalblue", cex = 0.9, adj = c(0, 0.5) )
+
+# text( x = 0.3, y = y_current, labels = "Current\n1983–2019", col = "darkgreen", cex = 0.9, adj = c(0, 0.5) )
+
+# EIA annotation line
+lines(
+  x = c(eia_start, eia_end),
+  y = c(y_eia, y_eia),
+  col = "lightcoral",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_start, eia_start),
+  y = c(y_eia - 0.8, y_eia + 0.8),
+  col = "lightcoral",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_end, eia_end),
+  y = c(y_eia - 0.8, y_eia + 0.8),
+  col = "lightcoral",
+  lwd = 3
+)
+
+# EIA Difference annotation line
+lines(
+  x = c(eia_diff_start, eia_diff_end),
+  y = c(y_eia_diff, y_eia_diff),
+  col = "royalblue",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_diff_start, eia_diff_start),
+  y = c(y_eia_diff - 0.8, y_eia_diff + 0.8),
+  col = "royalblue",
+  lwd = 3
+)
+
+lines(
+  x = c(eia_diff_end, eia_diff_end),
+  y = c(y_eia_diff - 0.8, y_eia_diff + 0.8),
+  col = "royalblue",
+  lwd = 3
+)
+
+# Current annotation line
+lines(
+  x = c(current_start, current_end),
+  y = c(y_current, y_current),
+  col = "darkgreen",
+  lwd = 3
+)
+
+lines(
+  x = c(current_start, current_start),
+  y = c(y_current - 0.8, y_current + 0.8),
+  col = "darkgreen",
+  lwd = 3
+)
+
+lines(
+  x = c(current_end, current_end),
+  y = c(y_current - 0.8, y_current + 0.8),
+  col = "darkgreen",
+  lwd = 3
+)
+
+# Legend
+legend(
+  "topright",
+  legend = c(
+    "Annual median",
+    "EIA: 1959–1995",
+    "EIA Difference: 1969–2005",
+    "Current: 1983–2019"
+  ),
+  col = c("grey20", "lightcoral", "royalblue", "darkgreen"),
+  lwd = c(3, 3, 3, 3),
+  bty = "n"
+)
+```
+
+
+
+## Define Comparison Periods
+
+```{r}
+# The CSV year columns are assumed to be already coded as Gregorian / CE years.
+
+eia <- flow_data |>
+  select(tendays, `1959`:`1995`) |>
+  select(-tendays) |>
+  unlist(use.names = FALSE)
+
+eia_difference <- flow_data |>
+  select(tendays, `1969`:`2005`) |>
+  select(-tendays) |>
+  unlist(use.names = FALSE)
+
+current <- flow_data |>
+  select(tendays, `1983`:`2019`) |>
+  select(-tendays) |>
+  unlist(use.names = FALSE)
+
+length(eia)
+length(eia_difference)
+length(current)
+```
+
+## Build Period Comparison Dataset
+
+```{r}
+flow_period_df <- tibble(
+  cms = c(eia, eia_difference, current),
+  period = rep(
+    c(
+      "EIA: 1959–1995",
+      "EIA Difference: 1969–2005",
+      "Current: 1983–2019"
+    ),
+    each = length(eia)
+  )
+)
+
+flow_period_df
+```
+
+## Summary Statistics by Period
+
+```{r}
+flow_period_summary <- flow_period_df |>
+  group_by(period) |>
+  summarise(
+    n = n(),
+    mean_cms = mean(cms, na.rm = TRUE),
+    median_cms = median(cms, na.rm = TRUE),
+    sd_cms = sd(cms, na.rm = TRUE),
+    variance_cms = var(cms, na.rm = TRUE),
+    q03_cms = quantile(cms, 0.03, na.rm = TRUE),
+    q25_cms = quantile(cms, 0.25, na.rm = TRUE),
+    q75_cms = quantile(cms, 0.75, na.rm = TRUE),
+    max_cms = max(cms, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+flow_period_summary
+```
+
+## Mean Difference Tests
+
+```{r}
+# Mean comparison between EIA and EIA Difference
+t.test(
+  eia,
+  eia_difference,
+  var.equal = TRUE
+)
+
+# Mean comparison between EIA Difference and Current
+t.test(
+  eia_difference,
+  current,
+  var.equal = TRUE
+)
+```
+
+## Variance Difference Tests
+
+```{r}
+# Variance comparison between EIA and EIA Difference
+var.test(
+  eia,
+  eia_difference,
+  alternative = "two.sided"
+)
+
+# Variance comparison between EIA Difference and Current
+var.test(
+  eia_difference,
+  current,
+  alternative = "two.sided"
+)
+```
+
+## Non-parametric Distributional Comparison
+
+```{r}
+# Wilcoxon rank-sum test between EIA Difference and Current
+
+wilcox.test(
+  eia_difference,
+  current,
+  alternative = "two.sided",
+  mu = 0,
+  exact = FALSE
+)
+```
+
+## One-way ANOVA
+
+```{r}
+aov_cms <- aov(
+  cms ~ period,
+  data = flow_period_df
+)
+
+summary(aov_cms)
+```
+
+## Period-level Boxplot
+
+```{r}
+#| fig.width: 8
+#| fig.height: 5
+#| fig.cap: "Comparison of ten-day average streamflow distributions across the EIA, EIA Difference, and Current periods."
+
+boxplot(
+  cms ~ period,
+  data = flow_period_df,
+  outline = FALSE,
+  xlab = "Reference Period",
+  ylab = "Ten-day Average Streamflow (cms)",
+  main = "Comparison of Lishan Streamflow Across Reference Periods",
+  col = "grey90",
+  border = "grey40"
+)
+```
+
+## Levene Test for Equality of Variance
+
+```{r}
+leveneTest(
+  cms ~ period,
+  data = flow_period_df,
+  center = mean
+)
+```
+
+## Low-flow Threshold
+
+```{r}
+# Estimate the 3rd percentile low-flow threshold across all year columns.
+# The tendays column is excluded.
+
+low_flow_q03 <- quantile(
+  unlist(flow_data[, -1], use.names = FALSE),
+  0.03,
+  na.rm = TRUE
+)
+
+low_flow_q03
+```
+
+## Interpretation Notes
+
+The analysis compares whether the streamflow distribution differs across three reference periods: the original EIA period, the EIA Difference period, and the Current period. The boxplot shows changes in annual ten-day streamflow distribution, while the statistical tests evaluate whether the mean, variance, and broader distributional characteristics differ across periods.
+
+The t-tests evaluate mean differences. The F-tests and Levene test evaluate variance differences. The Wilcoxon test provides a non-parametric comparison that is less dependent on normality assumptions. The 3rd percentile threshold provides a low-flow reference value for assessing hydrological stress or drought-sensitive flow conditions.
