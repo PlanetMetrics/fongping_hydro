@@ -4,47 +4,68 @@ format: pdf
 editor: visual
 ---
 
-## QUARTO
-
-```{r}
-#| echo: false
-```
-
 # INPUT
 
 ## PACKAGE
 ```{r}
 packages <- name listing 
+packages <- c(
+  "tidyverse",
+  "here",
+  "ggplot2",
+  "httr2",
+  "jsonlite"
+)
 
-install if you dont 
+installed_packages <- rownames(installed.packages())
 
-libraray(packages)
-```
+for (pkg in packages) {
+  if (!pkg %in% installed_packages) {
+    install.packages(pkg)
+  }
+}
 
-## READ DATA
-```{r}
-read here (data/**flowdata name notsure**.csv) # 10 days running average flow, might have other data
-
-# might need to pull in other data
+invisible(lapply(packages, library, character.only = TRUE))
 ```
 
 ## MODULES
 ```{r}
-read module (here(module))
+source(here("module", "hydro_finance.R"))
+```
+
+## READ DATA
+```{r}
+csv_files <- list.files(
+  here("data"),
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+csv_files
+
+flow_data <- read_csv(csv_files[1])
+
+ls()
 ```
 
 # baseline
 
-## reservoir  module 
+## reservoir module
+
 ### run reservoir for a year (time step)
-### sediment ? 
+
+### sediment ?
 
 ## MONEY MODULE
-### daily energy generation * 365
-### yearly profit 
+
+### daily energy generation \* 365
+
+### yearly profit
+
 ### 100 NPV
 
 # CC scenario (deviation of the inflow increase / maybe percipitation data)
-## lishan station data
-### CC saga <-- manipulation of inflow data 
 
+## lishan station data
+
+### CC saga \<-- manipulation of inflow data
