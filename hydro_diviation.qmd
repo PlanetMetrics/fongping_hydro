@@ -596,19 +596,109 @@ summary(aov_cms)
 
 ```{r}
 #| fig.width: 8
-#| fig.height: 5
-#| fig.cap: "Comparison of ten-day average streamflow distributions across the EIA, EIA Difference, and Current periods."
+#| fig.height: 6
+#| fig.cap: "Comparison of ten-day average streamflow distributions across the EIA, EIA Difference, and Current periods. The figure uses a broken-axis style to show both the main distribution and extreme high-flow observations."
 
-boxplot(
-  cms ~ period,
-  data = flow_period_df,
-  outline = FALSE,
-  xlab = "Reference Period",
-  ylab = "Ten-day Average Streamflow (cms)",
-  main = "Comparison of Lishan Streamflow Across Reference Periods",
-  col = "grey90",
-  border = "grey40"
+if (!requireNamespace("patchwork", quietly = TRUE)) {
+  install.packages("patchwork")
+}
+
+library(tidyverse)
+library(patchwork)
+
+# Set period order
+flow_period_df <- flow_period_df |>
+  mutate(
+    period = factor(
+      period,
+      levels = c(
+        "EIA: 1959–1995",
+        "EIA Difference: 1969–2005",
+        "Current: 1983–2019"
+      )
+    )
+  )
+
+# Colors
+period_cols <- c(
+  "EIA: 1959–1995" = "lightcoral",
+  "EIA Difference: 1969–2005" = "royalblue",
+  "Current: 1983–2019" = "darkgreen"
 )
+
+# Upper panel: extreme high-flow values
+p_top <- ggplot(
+  flow_period_df,
+  aes(x = period, y = cms, color = period, fill = period)
+) +
+  geom_boxplot(
+    alpha = 0.25,
+    width = 0.5,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    width = 0.15,
+    alpha = 0.25,
+    size = 0.8
+  ) +
+  scale_color_manual(values = period_cols) +
+  scale_fill_manual(values = period_cols) +
+  coord_cartesian(ylim = c(850, 950)) +
+  labs(
+    title = "Comparison of Lishan Streamflow Across Reference Periods",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    plot.margin = margin(5, 10, 0, 10)
+  )
+
+# Lower panel: main distribution
+p_bottom <- ggplot(
+  flow_period_df,
+  aes(x = period, y = cms, color = period, fill = period)
+) +
+  geom_boxplot(
+    alpha = 0.25,
+    width = 0.5,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    width = 0.15,
+    alpha = 0.18,
+    size = 0.6
+  ) +
+  stat_summary(
+    fun = median,
+    geom = "point",
+    shape = 18,
+    size = 3,
+    color = "black"
+  ) +
+  scale_color_manual(values = period_cols) +
+  scale_fill_manual(values = period_cols) +
+  coord_cartesian(ylim = c(0, 70)) +
+  labs(
+    x = "Reference Period",
+    y = "Ten-day Average Streamflow (cms)",
+    caption = "Note: The y-axis is visually broken. The lower panel shows the main distribution from 0–70 cms; the upper panel shows extreme high-flow observations from 850–950 cms."
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(size = 10),
+    plot.margin = margin(0, 10, 5, 10)
+  )
+
+# Combine panels
+p_top / p_bottom +
+  plot_layout(heights = c(1, 4))
 ```
 
 ## Levene Test for Equality of Variance
