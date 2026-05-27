@@ -8,7 +8,6 @@ editor: visual
 
 ## PACKAGE
 ```{r}
-packages <- name listing 
 packages <- c(
   "tidyverse",
   "here",
@@ -35,15 +34,7 @@ source(here("module", "hydro_finance.R"))
 
 ## READ DATA
 ```{r}
-csv_files <- list.files(
-  here("data"),
-  pattern = "\\.csv$",
-  full.names = TRUE
-)
-
-csv_files
-
-flow_data <- read_csv(csv_files[1])
+# read here("data/ # 10dayrunning"),
 
 ls()
 ```
