@@ -8,24 +8,41 @@ editor: visual
 
 ```{r}
 #| echo: false
+library(tidyverse)
+library(here)
+library(ggplot2)
+library(httr2)
+library(jsonlite)
+```
+
+```{r}
+source(here("module", "hydro_finance.R"))
+ls()
+
 ```
 
 # input package and data
 
-## input flow data 
+## input flow data
 
 # baseline
 
-## reservoir  module 
+## reservoir module
+
 ### run reservoir for a year (time step)
-### sediment ? 
+
+### sediment ?
 
 ## MONEY MODULE
-### daily energy generation * 365
-### yearly profit 
+
+### daily energy generation \* 365
+
+### yearly profit
+
 ### 100 NPV
 
 # CC scenario (deviation of the inflow increase / maybe percipitation data)
-## lishan station data
-### CC saga <-- manipulation of inflow data 
 
+## lishan station data
+
+### CC saga \<-- manipulation of inflow data
