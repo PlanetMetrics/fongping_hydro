@@ -1,0 +1,31 @@
+---
+title: "fongping hydro main"
+format: pdf
+editor: visual
+---
+
+## Quarto
+
+```{r}
+#| echo: false
+```
+
+# input package and data
+
+## input flow data 
+
+# baseline
+
+## reservoir  module 
+### run reservoir for a year (time step)
+### sediment ? 
+
+## MONEY MODULE
+### daily energy generation * 365
+### yearly profit 
+### 100 NPV
+
+# CC scenario (deviation of the inflow increase / maybe percipitation data)
+## lishan station data
+### CC saga <-- manipulation of inflow data 
+
