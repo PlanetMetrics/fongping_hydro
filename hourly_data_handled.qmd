@@ -1,0 +1,52 @@
+---
+title: "hourly data handle"
+format: html
+editor: visual
+---
+
+## Quarto
+```{r}
+library(jsonlite)
+library(tidyverse)
+library(here)
+daily_flow <- fromJSON(here("data", "lishan_daily.txt")) |>
+  as_tibble() |>
+  mutate(
+    date  = as.Date(yymmdd, format = "%Y/%m/%d %H:%M:%S"),
+    Q_cms = as.numeric(DAVG)
+  ) |>
+  select(date, Q_cms) |>
+  arrange(date)
+
+write_csv(daily_flow, here("data", "lishan_daily.csv"))
+```
+
+
+```{r}
+glimpse(daily_flow)
+cat("Total rows     :", nrow(daily_flow), "\n")
+cat("Date range     :", as.character(range(daily_flow$date, na.rm = TRUE)), "\n")
+cat("NA count       :", sum(is.na(daily_flow$Q_cms)), "\n")
+cat("NA percentage  :", round(mean(is.na(daily_flow$Q_cms)) * 100, 1), "%\n")
+cat("Max flow (cms) :", max(daily_flow$Q_cms, na.rm = TRUE), "\n")
+cat("Median flow    :", median(daily_flow$Q_cms, na.rm = TRUE), "\n")
+```
+
+```{r}
+# Check NA distribution by decade
+daily_flow |>
+  mutate(
+    year   = lubridate::year(date),
+    decade = paste0(floor(year / 10) * 10, "s")
+  ) |>
+  group_by(decade) |>
+  summarise(
+    n_total     = n(),
+    n_na        = sum(is.na(Q_cms)),
+    na_pct      = round(mean(is.na(Q_cms)) * 100, 1),
+    mean_Q_cms  = round(mean(Q_cms, na.rm = TRUE), 2),
+    max_Q_cms   = max(Q_cms, na.rm = TRUE)
+  ) |>
+  print(n = Inf)
+```
+
