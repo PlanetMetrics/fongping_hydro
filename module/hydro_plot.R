@@ -783,3 +783,154 @@ plot_energy_calendar_heatmap <- function(sim_weir,
   
   p
 }
+
+
+# =============================================================================
+# NEW: Plot selected reservoir operation window
+# =============================================================================
+#
+# Purpose:
+#   Visualise forecast-informed reservoir operation over a selected time window.
+#
+# Plot structure:
+#   Panel 1: Inflow line + stacked operational flow areas
+#            - Inflow = line
+#            - E-flow, power diversion, spill = stacked area
+#   Panel 2: Storage trajectory
+#   Panel 3: Daily energy generation
+#
+# Input:
+#   sim_df should be sim_forward24$W1 or sim_forward24$W2
+# =============================================================================
+
+plot_operation_window <- function(sim_df,
+                                  start_date,
+                                  end_date,
+                                  title_text = "Reservoir operation window",
+                                  show_storage = TRUE,
+                                  show_energy = TRUE) {
+  
+  stopifnot(
+    is.data.frame(sim_df),
+    all(c(
+      "date",
+      "Q_in_cms",
+      "Q_eflow_cms",
+      "Q_power_cms",
+      "Q_spill_cms",
+      "S_end_m3",
+      "energy_kwh"
+    ) %in% names(sim_df))
+  )
+  
+  window_df <- sim_df |>
+    mutate(date = as.Date(date)) |>
+    filter(
+      date >= as.Date(start_date),
+      date <= as.Date(end_date)
+    )
+  
+  if (nrow(window_df) == 0) {
+    stop("plot_operation_window: no data found in selected date range.")
+  }
+  
+  # ---------------------------------------------------------------------------
+  # Panel 1: flow operation
+  # ---------------------------------------------------------------------------
+  
+  flow_area_df <- window_df |>
+    select(
+      date,
+      `Ecological flow` = Q_eflow_cms,
+      `Power diversion` = Q_power_cms,
+      `Spill / overflow` = Q_spill_cms
+    ) |>
+    pivot_longer(
+      cols = -date,
+      names_to = "operation",
+      values_to = "Q_cms"
+    ) |>
+    mutate(
+      operation = factor(
+        operation,
+        levels = c(
+          "Ecological flow",
+          "Power diversion",
+          "Spill / overflow"
+        )
+      )
+    )
+  
+  p_flow <- ggplot() +
+    geom_area(
+      data = flow_area_df,
+      aes(x = date, y = Q_cms, fill = operation),
+      position = "stack",
+      alpha = 0.80
+    ) +
+    geom_line(
+      data = window_df,
+      aes(x = date, y = Q_in_cms),
+      linewidth = 1.0,
+      color = "black"
+    ) +
+    scale_fill_manual(
+      values = c(
+        "Ecological flow" = "#9ACD32",   # olive bright green
+        "Power diversion" = "#1F5AA6",   # royal blue
+        "Spill / overflow" = "#F6B6C1"   # light peach pink
+      )
+    ) +
+    labs(
+      title = title_text,
+      subtitle = "Line = inflow; stacked areas = ecological flow, power diversion, and spill",
+      x = NULL,
+      y = "Flow (cms)",
+      fill = NULL
+    ) +
+    theme_minimal(base_size = 11)
+  
+  # ---------------------------------------------------------------------------
+  # Panel 2: storage
+  # ---------------------------------------------------------------------------
+  
+  p_storage <- ggplot(window_df, aes(x = date, y = S_end_m3 / 1e6)) +
+    geom_line(linewidth = 0.9) +
+    labs(
+      x = NULL,
+      y = expression("Storage (" * 10^6 * " m"^3 * ")")
+    ) +
+    theme_minimal(base_size = 11)
+  
+  # ---------------------------------------------------------------------------
+  # Panel 3: energy generation
+  # ---------------------------------------------------------------------------
+  
+  p_energy <- ggplot(window_df, aes(x = date, y = energy_kwh / 1000)) +
+    geom_col(width = 0.8) +
+    labs(
+      x = NULL,
+      y = "Energy (MWh/day)"
+    ) +
+    theme_minimal(base_size = 11)
+  
+  # ---------------------------------------------------------------------------
+  # Combine panels
+  # ---------------------------------------------------------------------------
+  
+  if (show_storage && show_energy) {
+    p_flow / p_storage / p_energy +
+      patchwork::plot_layout(heights = c(2.2, 1, 1))
+    
+  } else if (show_storage && !show_energy) {
+    p_flow / p_storage +
+      patchwork::plot_layout(heights = c(2.2, 1))
+    
+  } else if (!show_storage && show_energy) {
+    p_flow / p_energy +
+      patchwork::plot_layout(heights = c(2.2, 1))
+    
+  } else {
+    p_flow
+  }
+}

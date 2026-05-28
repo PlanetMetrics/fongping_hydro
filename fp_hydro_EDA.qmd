@@ -115,24 +115,34 @@ daily_raw |>
 # Show 2010 as example (high NA year with typhoon events)
 year_example <- 2010
 
-df_compare <- daily_clean |>
+# Get raw values for this year
+raw_year <- daily_raw |>
   filter(year(date) == year_example) |>
-  mutate(
-    Q_raw    = daily_raw$Q_cms[year(daily_raw$date) == year_example],
-    Q_filled = Q_cms
-  ) |>
+  select(date, Q_raw = Q_cms)
+
+# Get filled values for this year
+filled_year <- daily_clean |>
+  filter(year(date) == year_example) |>
+  select(date, Q_filled = Q_cms)
+
+# Join and pivot
+df_compare <- raw_year |>
+  left_join(filled_year, by = "date") |>
   pivot_longer(
     cols      = c(Q_raw, Q_filled),
     names_to  = "source",
     values_to = "Q_cms"
   ) |>
-  mutate(source = if_else(source == "Q_raw",
-                          "Raw (with NA)", "After NA fill"))
+  mutate(
+    source = if_else(source == "Q_raw",
+                     "Raw (with NA)",
+                     "After NA fill")
+  )
 
 ggplot(df_compare, aes(x = date, y = Q_cms, colour = source)) +
   geom_line(alpha = 0.75, linewidth = 0.6) +
   scale_colour_manual(
-    values = c("Raw (with NA)" = "#888780",
+    values = c("Raw (with NA)"  = "#888780",
                "After NA fill" = "#1D9E75"),
     name = NULL
   ) +

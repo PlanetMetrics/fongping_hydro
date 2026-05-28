@@ -403,3 +403,204 @@ build_finance_outputs <- function(annual_gwh,
     sensitivity        = sens
   )
 }
+
+
+# =============================================================================
+# NEW: 20-year NPV trajectory and financial line plot
+# =============================================================================
+#
+# Purpose:
+#   Evaluate 20-year financial performance using annual hydropower revenue.
+#
+# Inputs:
+#   annual_generation_df:
+#     output from summarise_annual_generation()
+#
+# Key outputs:
+#   - annual revenue
+#   - annual net cash flow
+#   - discounted cash flow
+#   - cumulative NPV trajectory
+#   - NPV financial line plot
+# =============================================================================
+
+
+build_cash_flows_20yr <- function(annual_revenue_ntd,
+                                  ltv = .FIN$ltv_default,
+                                  r_loan = .FIN$r_loan_default,
+                                  capex_ntd = .FIN$capex_ntd,
+                                  opex_ntd_yr = .FIN$opex_ntd_yr,
+                                  project_life_yr = 20L) {
+  
+  stopifnot(
+    is.numeric(annual_revenue_ntd),
+    length(annual_revenue_ntd) >= 1L,
+    ltv >= 0,
+    ltv <= 1,
+    r_loan >= 0,
+    capex_ntd > 0,
+    project_life_yr == 20L
+  )
+  
+  # Use exactly 20 years.
+  annual_revenue_ntd <- rep(annual_revenue_ntd, length.out = project_life_yr)
+  
+  equity_ntd <- capex_ntd * (1 - ltv)
+  loan_ntd   <- capex_ntd * ltv
+  
+  # Level debt service annuity over 20 years
+  debt_service_ntd <- if (r_loan == 0 || loan_ntd == 0) {
+    loan_ntd / project_life_yr
+  } else {
+    loan_ntd * r_loan / (1 - (1 + r_loan)^(-project_life_yr))
+  }
+  
+  annual_net_cash_flow_ntd <- annual_revenue_ntd - opex_ntd_yr - debt_service_ntd
+  
+  tibble::tibble(
+    year = 0:project_life_yr,
+    revenue_ntd = c(0, annual_revenue_ntd),
+    opex_ntd = c(0, rep(opex_ntd_yr, project_life_yr)),
+    debt_service_ntd = c(0, rep(debt_service_ntd, project_life_yr)),
+    cash_flow_ntd = c(-equity_ntd, annual_net_cash_flow_ntd)
+  )
+}
+
+
+compute_npv_trajectory_20yr <- function(cash_flow_df,
+                                        discount_rate = .FIN$r_equity) {
+  
+  stopifnot(
+    is.data.frame(cash_flow_df),
+    all(c("year", "cash_flow_ntd") %in% names(cash_flow_df)),
+    discount_rate >= 0
+  )
+  
+  cash_flow_df |>
+    mutate(
+      discount_factor = 1 / (1 + discount_rate) ^ year,
+      discounted_cash_flow_ntd = cash_flow_ntd * discount_factor,
+      cumulative_npv_ntd = cumsum(discounted_cash_flow_ntd),
+      cumulative_npv_b_ntd = cumulative_npv_ntd / 1e9
+    )
+}
+
+
+run_npv_20yr_from_generation <- function(annual_generation_df,
+                                         ltv = .FIN$ltv_default,
+                                         r_loan = .FIN$r_loan_default,
+                                         discount_rate = .FIN$r_equity,
+                                         capex_ntd = .FIN$capex_ntd,
+                                         opex_ntd_yr = .FIN$opex_ntd_yr,
+                                         project_life_yr = 20L,
+                                         revenue_col = "revenue_ntd") {
+  
+  stopifnot(
+    is.data.frame(annual_generation_df),
+    revenue_col %in% names(annual_generation_df)
+  )
+  
+  annual_revenue <- annual_generation_df[[revenue_col]]
+  
+  # If the historical record has more than 20 years, use the mean revenue
+  # as the representative annual revenue stream.
+  representative_revenue <- mean(annual_revenue, na.rm = TRUE)
+  
+  cash_flow_df <- build_cash_flows_20yr(
+    annual_revenue_ntd = representative_revenue,
+    ltv = ltv,
+    r_loan = r_loan,
+    capex_ntd = capex_ntd,
+    opex_ntd_yr = opex_ntd_yr,
+    project_life_yr = project_life_yr
+  )
+  
+  compute_npv_trajectory_20yr(
+    cash_flow_df = cash_flow_df,
+    discount_rate = discount_rate
+  )
+}
+
+
+plot_npv_financial_line_20yr <- function(npv_df,
+                                         title_text = "20-year NPV financial trajectory") {
+  
+  stopifnot(
+    is.data.frame(npv_df),
+    all(c("year", "cumulative_npv_b_ntd") %in% names(npv_df))
+  )
+  
+  ggplot(npv_df, aes(x = year, y = cumulative_npv_b_ntd)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "grey40") +
+    geom_line(linewidth = 1.1, color = "#1F5AA6") +
+    geom_point(size = 2, color = "#1F5AA6") +
+    labs(
+      title = title_text,
+      subtitle = "Year 0 includes equity CAPEX; years 1–20 show cumulative discounted cash flow",
+      x = "Project year",
+      y = "Cumulative NPV (NTD billion)"
+    ) +
+    theme_minimal(base_size = 11)
+}
+
+
+
+
+plot_sensitivity_frontier <- function(frontier_df,
+                                      title_text = "Feasibility frontier") {
+  
+  ggplot(frontier_df, aes(x = r_loan_pct, y = ltv_pct, z = npv_b_ntd)) +
+    geom_tile(aes(fill = npv_b_ntd)) +
+    geom_contour(
+      breaks = 0,
+      color = "black",
+      linewidth = 0.9
+    ) +
+    facet_wrap(~ scenario) +
+    scale_fill_viridis_c(option = "C") +
+    labs(
+      title = title_text,
+      subtitle = "Black contour = NPV = 0",
+      x = "Loan interest rate (%)",
+      y = "Loan-to-value ratio (%)",
+      fill = "NPV\n(NTD billion)"
+    ) +
+    theme_minimal(base_size = 11)
+}
+
+
+plot_npv_comparison_20yr <- function(npv_instant,
+                                     npv_forward24,
+                                     title_text = "20-year NPV comparison") {
+  
+  plot_df <- dplyr::bind_rows(
+    npv_instant |>
+      dplyr::mutate(operation = "Immediate dispatch"),
+    npv_forward24 |>
+      dplyr::mutate(operation = "24-hour forecast-informed")
+  )
+  
+  ggplot2::ggplot(
+    plot_df,
+    ggplot2::aes(
+      x = year,
+      y = cumulative_npv_b_ntd,
+      color = operation
+    )
+  ) +
+    ggplot2::geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      color = "grey40"
+    ) +
+    ggplot2::geom_line(linewidth = 1.1) +
+    ggplot2::geom_point(size = 2) +
+    ggplot2::labs(
+      title = title_text,
+      subtitle = "Year 0 includes equity CAPEX; years 1–20 show cumulative discounted cash flow",
+      x = "Project year",
+      y = "Cumulative NPV (NTD billion)",
+      color = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11)
+}

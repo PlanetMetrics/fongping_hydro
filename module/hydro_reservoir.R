@@ -478,3 +478,251 @@ scale_flow_to_watershed <- function(daily_flow,
     ) |>
     select(date, Q_cms)
 }
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# NEW: 24-hour forecast-informed reservoir operation
+# =============================================================================
+#
+# This section adds a forecast-informed operation rule while preserving the
+# original immediate-dispatch reservoir model.
+#
+# Original model:
+#   simulate_one_weir()
+#   run_reservoir_simulation()
+#
+# New model:
+#   simulate_one_weir_forward24()
+#   run_reservoir_simulation_forward24()
+#
+# The new model uses a 24-hour look-ahead rule:
+#   - ecological flow first
+#   - turbine flow capped by design flow
+#   - storage can support low-flow generation
+#   - if tomorrow is wet, the reservoir leaves storage space to reduce spill
+#   - water above S_max becomes overflow/spill
+# =============================================================================
+
+
+.estimate_net_head <- function(weir_id) {
+  
+  params <- .PLANT_PARAMS[[weir_id]]
+  
+  (params$capacity_kw * 1000) /
+    (params$efficiency * .RHO_WATER * .GRAVITY * params$Q_design_cms)
+}
+
+
+simulate_one_weir_forward24 <- function(daily_flow,
+                                        weir_id       = "W1",
+                                        e_flow_mode   = "recommended",
+                                        e_flow_custom = NA_real_,
+                                        S_init        = NULL,
+                                        net_head_m    = NA_real_) {
+  
+  stopifnot(
+    is.data.frame(daily_flow),
+    all(c("date", "Q_cms") %in% names(daily_flow)),
+    weir_id %in% names(.PLANT_PARAMS)
+  )
+  
+  df <- daily_flow |>
+    arrange(date) |>
+    mutate(Q_cms = pmax(Q_cms, 0))
+  
+  params   <- .PLANT_PARAMS[[weir_id]]
+  S_max    <- params$S_max_m3
+  Q_design <- params$Q_design_cms
+  eta      <- params$efficiency
+  cap_kw   <- params$capacity_kw
+  
+  if (is.na(net_head_m) || net_head_m <= 0) {
+    net_head_m <- .estimate_net_head(weir_id)
+  }
+  
+  e_flow <- get_eflow(weir_id, e_flow_mode, e_flow_custom)
+  S      <- if (is.null(S_init)) 0.5 * S_max else min(max(S_init, 0), S_max)
+  n      <- nrow(df)
+  
+  Q_eflow_v   <- numeric(n)
+  Q_power_v   <- numeric(n)
+  Q_spill_v   <- numeric(n)
+  Q_overmax_v <- numeric(n)
+  S_start_v   <- numeric(n)
+  S_target_v  <- numeric(n)
+  S_end_v     <- numeric(n)
+  energy_v    <- numeric(n)
+  eflow_ok_v  <- logical(n)
+  power_ok_v  <- logical(n)
+  
+  V_design_day <- Q_design * .SECONDS_PER_DAY
+  
+  for (i in seq_len(n)) {
+    
+    Q_in    <- df$Q_cms[i]
+    Q_next  <- if (i < n) df$Q_cms[i + 1L] else Q_in
+    S_start <- S
+    
+    # Priority 1: ecological flow
+    Q_ef <- min(e_flow, Q_in)
+    eflow_ok_v[i] <- Q_in >= e_flow
+    
+    V_in_today <- max(Q_in - Q_ef, 0) * .SECONDS_PER_DAY
+    V_available_today <- S_start + V_in_today
+    
+    # 24-hour forecast
+    Q_next_ef <- min(e_flow, Q_next)
+    V_in_next <- max(Q_next - Q_next_ef, 0) * .SECONDS_PER_DAY
+    
+    storage_needed_for_tomorrow <- max(0, V_design_day - V_in_next)
+    empty_space_needed_tomorrow <- max(0, V_in_next - V_design_day)
+    
+    # Target storage:
+    # keep water if tomorrow is dry;
+    # leave empty space if tomorrow is wet.
+    S_target <- min(storage_needed_for_tomorrow, S_max)
+    S_target <- min(S_target, max(0, S_max - empty_space_needed_tomorrow))
+    
+    # Power release today
+    V_power <- min(
+      V_design_day,
+      max(0, V_available_today - S_target)
+    )
+    
+    Q_pw <- V_power / .SECONDS_PER_DAY
+    power_ok_v[i] <- Q_pw >= (Q_design - 1e-6)
+    
+    S_new <- V_available_today - V_power
+    
+    # Overflow / spill
+    Q_sp <- 0
+    if (S_new > S_max) {
+      spill_vol <- S_new - S_max
+      Q_sp  <- spill_vol / .SECONDS_PER_DAY
+      S_new <- S_max
+    }
+    
+    # Diagnostic: water available above turbine design intake
+    Q_overmax <- max(0, (V_available_today / .SECONDS_PER_DAY) - Q_design)
+    
+    # Energy generation
+    P_kw  <- eta * .RHO_WATER * .GRAVITY * Q_pw * net_head_m / 1000
+    P_kw  <- min(P_kw, cap_kw)
+    E_kwh <- P_kw * 24
+    
+    Q_eflow_v[i]   <- Q_ef
+    Q_power_v[i]   <- Q_pw
+    Q_spill_v[i]   <- Q_sp
+    Q_overmax_v[i] <- Q_overmax
+    S_start_v[i]   <- S_start
+    S_target_v[i]  <- S_target
+    S_end_v[i]     <- S_new
+    energy_v[i]    <- E_kwh
+    
+    S <- S_new
+  }
+  
+  data.frame(
+    date              = df$date,
+    Q_in_cms          = df$Q_cms,
+    Q_eflow_cms       = Q_eflow_v,
+    Q_power_cms       = Q_power_v,
+    Q_spill_cms       = Q_spill_v,
+    Q_over_design_cms = Q_overmax_v,
+    S_start_m3        = S_start_v,
+    S_target_m3       = S_target_v,
+    S_end_m3          = S_end_v,
+    energy_kwh        = energy_v,
+    eflow_satisfied   = eflow_ok_v,
+    power_satisfied   = power_ok_v,
+    operation_mode    = "forward24",
+    tou_multiplier    = 1.0
+  )
+}
+
+
+run_reservoir_simulation_forward24 <- function(daily_flow,
+                                               e_flow_mode    = "recommended",
+                                               e_flow_custom  = NA_real_,
+                                               na_method      = "linear",
+                                               max_gap_linear = 7L,
+                                               decadal_ref    = NULL,
+                                               scale_w2       = TRUE) {
+  
+  filled_w1 <- fill_daily_na(daily_flow, na_method, max_gap_linear, decadal_ref)
+  
+  filled_w2 <- if (scale_w2) {
+    scale_flow_to_watershed(filled_w1 |> select(date, Q_cms))
+  } else {
+    filled_w1 |> select(date, Q_cms)
+  }
+  
+  w1 <- simulate_one_weir_forward24(
+    daily_flow    = filled_w1,
+    weir_id       = "W1",
+    e_flow_mode   = e_flow_mode,
+    e_flow_custom = e_flow_custom
+  )
+  
+  w2 <- simulate_one_weir_forward24(
+    daily_flow    = filled_w2,
+    weir_id       = "W2",
+    e_flow_mode   = e_flow_mode,
+    e_flow_custom = e_flow_custom
+  )
+  
+  combined <- data.frame(
+    date                 = w1$date,
+    Q_in_cms_W1          = w1$Q_in_cms,
+    Q_in_cms_W2          = w2$Q_in_cms,
+    Q_power_cms_W1       = w1$Q_power_cms,
+    Q_power_cms_W2       = w2$Q_power_cms,
+    Q_spill_cms_W1       = w1$Q_spill_cms,
+    Q_spill_cms_W2       = w2$Q_spill_cms,
+    energy_kwh_W1        = w1$energy_kwh,
+    energy_kwh_W2        = w2$energy_kwh,
+    energy_kwh_total     = w1$energy_kwh + w2$energy_kwh,
+    eflow_ok_W1          = w1$eflow_satisfied,
+    eflow_ok_W2          = w2$eflow_satisfied,
+    power_ok_W1          = w1$power_satisfied,
+    power_ok_W2          = w2$power_satisfied
+  )
+  
+  list(
+    W1          = w1,
+    W2          = w2,
+    combined    = combined,
+    e_flow_mode = e_flow_mode,
+    filled_flow = filled_w1,
+    scale_w2    = scale_w2
+  )
+}
+
+
+summarise_annual_generation <- function(sim_out,
+                                        fit_ntd_per_kwh = .FIT_NTD_PER_KWH) {
+  
+  sim_out$combined |>
+    mutate(year = lubridate::year(date)) |>
+    group_by(year) |>
+    summarise(
+      energy_gwh_W1      = sum(energy_kwh_W1, na.rm = TRUE) / 1e6,
+      energy_gwh_W2      = sum(energy_kwh_W2, na.rm = TRUE) / 1e6,
+      energy_gwh_total   = sum(energy_kwh_total, na.rm = TRUE) / 1e6,
+      power_water_m3_W1  = sum(Q_power_cms_W1, na.rm = TRUE) * .SECONDS_PER_DAY,
+      power_water_m3_W2  = sum(Q_power_cms_W2, na.rm = TRUE) * .SECONDS_PER_DAY,
+      spill_m3_W1        = sum(Q_spill_cms_W1, na.rm = TRUE) * .SECONDS_PER_DAY,
+      spill_m3_W2        = sum(Q_spill_cms_W2, na.rm = TRUE) * .SECONDS_PER_DAY,
+      revenue_ntd        = sum(energy_kwh_total, na.rm = TRUE) * fit_ntd_per_kwh,
+      eflow_ok_pct_W1    = mean(eflow_ok_W1, na.rm = TRUE) * 100,
+      eflow_ok_pct_W2    = mean(eflow_ok_W2, na.rm = TRUE) * 100,
+      .groups = "drop"
+    )
+}
