@@ -4,6 +4,16 @@ format: pdf
 editor: visual
 ---
 
+# OVERVIEW
+
+This program evaluates the financial feasibility of the proposed Fengping River hydropower project under historic flows and two climate change scenarios (SSP2-4.5 and SSP5-8.5).
+
+**Program contract**
+
+-   **Inputs:** daily streamflow record (1958–2025), sediment rating-curve data, weir design specifications, climate projection parameters, finance parameters (FIT, CAPEX, LTV, loan rate, equity rate, project lifetime).
+-   **Outputs:** annual energy generation (GWh), annual revenue (NTD), 20-year NPV, and an NPV feasibility frontier across the loan-rate × LTV parameter grid, reported for each scenario (baseline, SSP2-4.5, SSP5-8.5).
+-   **Parameters:** e-flow mode, sediment toggle, number of bootstrap simulations, projection year, finance parameter ranges.
+
 # SETUP
 
 ## PACKAGE
@@ -56,13 +66,14 @@ rc_params    <- read_csv(here("data", "rating_curve_params.csv"),
                          show_col_types = FALSE)
 ```
 
----
+------------------------------------------------------------------------
 
 # BASELINE SCENARIO
 
 ## Reservoir simulation
 
 ```{r}
+
 # Run reservoir simulation — baseline, recommended e-flow
 sim_baseline <- run_reservoir_simulation(
   daily_flow  = daily_flow,
@@ -80,6 +91,9 @@ cat("E-flow satisfied W2 (%) :",
     round(mean(sim_baseline$W2$eflow_satisfied) * 100, 1), "%\n")
 
 
+```
+
+```{r}
 # ── Reservoir operation plots ─────────────────────────────────
 
 # Default: first 90 days
@@ -107,12 +121,7 @@ plot_reservoir_operation(
   e_flow_mode = "recommended"
 )
 
-
 ```
-
-
-
-
 
 ## Sediment
 
@@ -131,6 +140,7 @@ sed_out$trap_W1 |>
   select(year, S_remaining_m3, TE) |>
   print()
 ```
+
 ## Generation
 
 ```{r}
@@ -144,7 +154,6 @@ plot_energy_calendar_heatmap(sim_baseline$W1, year_filter = 2010:2020)
 # 全部年份
 plot_energy_calendar_heatmap(sim_baseline$W1)
 ```
-
 
 ## Finance — without sediment
 
@@ -185,7 +194,7 @@ cat(sprintf("With sediment   : NTD %.2fB/yr | NPV NTD %.2fB\n",
             fin_with_sed$npv_ntd / 1e9))
 ```
 
----
+------------------------------------------------------------------------
 
 # CLIMATE CHANGE SCENARIOS
 
@@ -274,7 +283,6 @@ cat(sprintf("Equity rate  : %.1f%%\n", R_EQUITY * 100))
 cat(sprintf("Project life : %d years\n", T_YEARS))
 ```
 
-
 ```{r}
 #| fig-width: 9
 #| fig-height: 5
@@ -284,10 +292,30 @@ sens_no_sed   <- fin_no_sed$sensitivity
 sens_with_sed <- fin_with_sed$sensitivity
 
 sens_combined <- bind_rows(sens_no_sed, sens_with_sed)
+user_point <- data.frame(
+  scenario   = c("Baseline (no sediment)", "Baseline (with sediment)"),
+  r_loan_pct = R_LOAN * 100,
+  ltv_pct    = LTV * 100
+)
 
-plot_npv_feasibility_frontier(sens_combined)
+plot_npv_feasibility_frontier(sens_combined) +
+  geom_point(
+    data   = user_point,
+    aes(x = r_loan_pct, y = ltv_pct),
+    shape  = 23,
+    size   = 4,
+    fill   = "white",
+    colour = "black",
+    stroke = 1.2
+  ) +
+  labs(caption = paste0(
+    "Diamond = current parameter setting",
+    " (LTV = ", LTV * 100, "%, rate = ", R_LOAN * 100, "%)\n",
+    "CAPEX = NTD ", CAPEX_NTD / 1e9, "B; ",
+    "FIT = NTD ", FIT_NTD_PER_KWH, "/kWh; ",
+    "Equity rate = ", R_EQUITY * 100, "%"
+  ))
 ```
-
 
 ```{r}
 # Finance — without sediment
@@ -325,6 +353,7 @@ sens_with_sed <- run_sensitivity(
 
 sens_combined <- bind_rows(sens_no_sed, sens_with_sed)
 
+
 # Mark user's chosen parameters on the plot
 user_point <- data.frame(
   scenario   = c("Without sediment", "With sediment"),
@@ -351,9 +380,6 @@ plot_npv_feasibility_frontier(sens_combined) +
   ))
 ```
 
-
-
-
 ```{r}
 sim_forward24 <- run_reservoir_simulation_forward24(
   daily_flow = daily_flow,
@@ -372,11 +398,6 @@ annual_forward24 |>
     mean_spill_m3 = mean(spill_m3_W1 + spill_m3_W2, na.rm = TRUE)
   )
 ```
-
-
-
-
-
 
 ```{r}
 plot_operation_window(
@@ -424,6 +445,7 @@ plot_operation_window(
   title_text = "W2 immediate-dispatch operation during high-flow period"
 )
 ```
+
 ```{r}
 npv_forward24_20yr <- run_npv_20yr_from_generation(
   annual_generation_df = annual_forward24,
@@ -455,15 +477,6 @@ annual_instant <- sim_instant$combined |>
   )
 ```
 
-
-
-
-
-
-
-
-
-
 ```{r}
 npv_instant_20yr <- run_npv_20yr_from_generation(
   annual_generation_df = annual_instant,
@@ -492,7 +505,6 @@ plot_npv_financial_line_20yr(
 )
 ```
 
-
 ```{r}
 plot_npv_comparison_20yr(
   npv_instant = npv_instant_20yr,
@@ -500,6 +512,7 @@ plot_npv_comparison_20yr(
   title_text = "Immediate vs forecast-informed operation: 20-year NPV"
 )
 ```
+
 ```{r}
 frontier_instant <- run_sensitivity(
   annual_revenue_ntd = mean(annual_instant$revenue_ntd, na.rm = TRUE),
@@ -526,11 +539,3 @@ plot_sensitivity_frontier(
   title_text = "Immediate vs forecast-informed operation: feasibility frontier"
 )
 ```
-
-
-
-
-
-
-
-
