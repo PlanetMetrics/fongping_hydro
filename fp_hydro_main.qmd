@@ -4,9 +4,10 @@ format: pdf
 editor: visual
 ---
 
-# INPUT
+# SETUP
 
 ## PACKAGE
+
 ```{r}
 packages <- c(
   "tidyverse",
@@ -28,16 +29,268 @@ invisible(lapply(packages, library, character.only = TRUE))
 ```
 
 ## MODULES
+
 ```{r}
+# source modules
+source(here("module", "hydro_reservoir.R"))
+source(here("module", "hydro_sediment.R"))
 source(here("module", "hydro_finance.R"))
+source(here("module", "hydro_climate.R"))
+source(here("module", "hydro_test.R"))
+
+## Run tests first — stop if anything fails
+run_all_tests()
 ```
 
+## Load data
+
+```{r}
+## Load clean data
+## data is prehandled by scripts in data_handle folder
+
+daily_flow    <- read_csv(here("data", "lishan_daily_clean.csv"))
+decadal_flow  <- read_csv(here("data", "lishan_decadal_long.csv"))
+sed_clean     <- read_csv(here("data", "sediment_clean.csv"))
+weir_design   <- read_csv(here("data", "weir_design_flow.csv"))
+```
+
+
+
+
+
+## Analysis starts here...```
+
 ## READ DATA
+
 ```{r}
 # read here("data/ # 10dayrunning"),
 
 ls()
 ```
+
+```{r}
+source(here("module", "hydro_reservoir.R"))
+
+daily_flow <- read_csv(here("data", "lishan_daily.csv"),
+                       show_col_types = FALSE)
+
+# Quick test: one year, recommended e-flow
+sim_test <- run_reservoir_simulation(
+  daily_flow  = daily_flow |> filter(lubridate::year(date) == 2023),
+  e_flow_mode = "recommended"
+)
+
+# Check outputs
+glimpse(sim_test$combined)
+cat("Annual energy W1 (GWh):", sum(sim_test$W1$energy_kwh) / 1e6, "\n")
+cat("Annual energy W2 (GWh):", sum(sim_test$W2$energy_kwh) / 1e6, "\n")
+cat("E-flow satisfied W1 (%):",
+    round(mean(sim_test$W1$eflow_satisfied) * 100, 1), "%\n")
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(here)
+library(lubridate)
+
+# ── 1. 立山站日流量 ──────────────────────────────────────────
+daily_flow <- read_csv(here("data", "lishan_daily.csv"),
+                       show_col_types = FALSE)
+
+cat("=== lishan_daily.csv ===\n")
+cat("Rows          :", nrow(daily_flow), "\n")
+cat("Date range    :", as.character(range(daily_flow$date)), "\n")
+cat("NA count      :", sum(is.na(daily_flow$Q_cms)), "\n")
+cat("NA pct        :", round(mean(is.na(daily_flow$Q_cms))*100,1), "%\n")
+cat("Max Q (cms)   :", max(daily_flow$Q_cms, na.rm=TRUE), "\n\n")
+
+# ── 2. 旬流量（原始作業資料）────────────────────────────────
+decadal_flow <- read_csv(here("data", "lishan_flow.csv"),
+                         show_col_types = FALSE)
+
+cat("=== lishan_flow.csv ===\n")
+cat("Rows (tendays):", nrow(decadal_flow), "\n")
+cat("Year range    :", names(decadal_flow)[2], "to",
+    names(decadal_flow)[ncol(decadal_flow)], "\n\n")
+
+# ── 3. 土砂資料 ──────────────────────────────────────────────
+sed_raw <- read_excel(here("ref", "豐坪溪河川輸砂量統計.xlsx"))
+
+cat("=== 豐坪溪河川輸砂量統計.xlsx ===\n")
+cat("Rows          :", nrow(sed_raw), "\n")
+cat("Columns       :", names(sed_raw), "\n")
+cat("Year range    :", min(sed_raw$year), "to", max(sed_raw$year), "\n")
+cat("Q range (cms) :", min(sed_raw$Discharge_CMS), "to",
+    max(sed_raw$Discharge_CMS), "\n\n")
+
+# ── 4. 確認 ref 資料夾還有什麼 ──────────────────────────────
+cat("=== ref/ folder ===\n")
+fs::dir_ls(here("ref")) |> basename() |> print()
+```
+
+
+
+
+```{r}
+# ── 檢查土砂資料結構 ──────────────────────────────────────────
+
+# 看前20行
+sed_raw |> head(20) |> print()
+
+# 看有幾個 sheet
+excel_sheets(here("ref", "豐坪溪河川輸砂量統計.xlsx"))
+
+# 看奇怪欄位裡有什麼
+cat("\n=== 工作方法欄位的值 ===\n")
+sed_raw |> count(`工作方法`) |> print()
+
+cat("\n=== ...9 欄位樣本 ===\n")
+sed_raw |> select(`...9`, `...10`) |> 
+  filter(!is.na(`...9`)) |> head(10) |> print()
+
+# 看 Q > 500 的紀錄（可能是資料錯誤或真實洪水）
+cat("\n=== Q > 500 cms 的紀錄 ===\n")
+s
+```
+
+```{r}
+# 讀工作表3（乾淨資料）
+sed_sheet3 <- read_excel(
+  here("ref", "豐坪溪河川輸砂量統計.xlsx"),
+  sheet = "工作表3"
+)
+
+cat("=== 工作表3 ===\n")
+cat("Rows    :", nrow(sed_sheet3), "\n")
+cat("Columns :", names(sed_sheet3), "\n\n")
+
+glimpse(sed_sheet3)
+
+cat("\n=== 前10行 ===\n")
+print(head(sed_sheet3, 10))
+
+cat("\n=== Q 分布 ===\n")
+cat("Min Q   :", min(sed_sheet3$Discharge_CMS, na.rm = TRUE), "\n")
+cat("Max Q   :", max(sed_sheet3$Discharge_CMS, na.rm = TRUE), "\n")
+cat("Q > 500 :", sum(sed_sheet3$Discharge_CMS > 500, na.rm = TRUE), "rows\n")
+cat("ppm = 0 :", sum(sed_sheet3$Sed_Con_ppm == 0, na.rm = TRUE), "rows\n")
+cat("NA rows :", sum(is.na(sed_sheet3$Discharge_CMS)), "\n")
+
+cat("\n=== 年份分布 ===\n")
+sed_sheet3 |> count(year) |> print(n = Inf)
+```
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(here)
+library(lubridate)
+library(zoo)
+
+# ── 讀入已有的乾淨日流量 ─────────────────────────────────────
+daily_clean <- read_csv(here("data", "lishan_daily.csv"),
+                        show_col_types = FALSE)
+
+# ── BLOCK 3: 重建 sed_fixed ──────────────────────────────────
+sed_raw <- read_excel(
+  here("ref", "豐坪溪河川輸砂量統計.xlsx"),
+  sheet = "工作表3"
+)
+
+sed_flagged <- sed_raw |>
+  mutate(
+    date_full = as.Date(
+      sprintf("%04d-%02d-%02d",
+              as.integer(year),
+              as.integer(month),
+              as.integer(date))
+    ),
+    SSL_expected = Discharge_CMS * Sed_Con_ppm * 0.0864,
+    flag = case_when(
+      Discharge_CMS > 500 & month %in% c(1,2,3,4,5,11,12) ~ "Q_typo",
+      Discharge_CMS > 800  ~ "Q_extreme_check",
+      Sed_Con_ppm == 0     ~ "below_detection",
+      Sed_Con_ppm > 0 &
+        abs(Sus_Load_MTDay - SSL_expected) /
+        (SSL_expected + 0.001) > 0.15 ~ "ssl_inconsistent",
+      TRUE ~ "ok"
+    )
+  )
+
+sed_fixed <- sed_flagged |>
+  mutate(
+    Discharge_CMS = if_else(flag == "Q_typo",
+                             Discharge_CMS / 100,
+                             Discharge_CMS),
+    flag = if_else(flag == "Q_typo", "typo_corrected", flag)
+  )
+
+cat("sed_fixed built:", nrow(sed_fixed), "rows\n")
+cat("Flag distribution:\n")
+sed_fixed |> count(flag) |> print()
+
+# ── Cross-validation ─────────────────────────────────────────
+sed_with_date <- sed_fixed |>
+  mutate(
+    date_full = as.Date(
+      sprintf("%04d-%02d-%02d",
+              as.integer(year),
+              as.integer(month),
+              as.integer(date))
+    )
+  )
+
+cross_check <- sed_with_date |>
+  filter(flag %in% c("ok", "typo_corrected", "ssl_inconsistent")) |>
+  left_join(
+    daily_clean |> select(date, Q_daily = Q_cms, Q_raw = Q_cms_raw),
+    by = c("date_full" = "date")
+  ) |>
+  mutate(
+    Q_diff_pct = if_else(
+      !is.na(Q_daily) & Q_daily > 0,
+      (Discharge_CMS - Q_daily) / Q_daily * 100,
+      NA_real_
+    ),
+    matched = !is.na(Q_raw)   # Q_raw is NA only if date not in daily record
+  )
+
+cat("\n=== Cross-validation summary ===\n")
+cat("Sediment obs used             :", nrow(cross_check), "\n")
+cat("Matched to daily flow record  :", sum(cross_check$matched), "\n")
+cat("No match in daily record      :", sum(!cross_check$matched), "\n\n")
+
+cat("=== Q difference (sediment vs daily) ===\n")
+cross_check |>
+  filter(matched) |>
+  summarise(
+    n             = n(),
+    mean_diff_pct = round(mean(Q_diff_pct, na.rm = TRUE), 1),
+    median_diff_pct = round(median(Q_diff_pct, na.rm = TRUE), 1),
+    sd_diff_pct   = round(sd(Q_diff_pct, na.rm = TRUE), 1),
+    within_10pct  = round(mean(abs(Q_diff_pct) < 10,  na.rm = TRUE) * 100, 1),
+    within_20pct  = round(mean(abs(Q_diff_pct) < 20,  na.rm = TRUE) * 100, 1)
+  ) |>
+  print()
+
+cat("\n=== Largest discrepancies (|diff| > 50%) ===\n")
+cross_check |>
+  filter(matched, abs(Q_diff_pct) > 50) |>
+  select(date_full, Q_sed = Discharge_CMS,
+         Q_daily, Q_diff_pct, flag) |>
+  arrange(desc(abs(Q_diff_pct))) |>
+  print(n = 20)
+
+cat("\n=== Unmatched years (no daily record) ===\n")
+cross_check |>
+  filter(!matched) |>
+  count(year) |>
+  print(n = Inf)
+```
+
+
 
 # baseline
 

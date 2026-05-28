@@ -1,0 +1,9 @@
+parameter,value,description
+a,11.517824684359871,Rating curve coefficient (SSL = a * Q^b)
+b,1.508536794592275,Rating curve exponent
+r_squared,0.6375765497359412,R-squared of log-log regression
+n_points,492,Number of valid observations used
+Q_min_cms,2.69,Minimum Q in fitting data (cms)
+Q_max_cms,601,Maximum Q in fitting data (cms)
+year_min,1959,First year of sediment record
+year_max,2023,Last year of sediment record

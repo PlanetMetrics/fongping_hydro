@@ -1,0 +1,103 @@
+---
+title: "ratingcurve handle"
+format: html
+editor: visual
+---
+
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(here)
+library(zoo)
+library(lubridate)
+
+# ── BLOCK 3: Build sediment_clean.csv ────────────────────────
+
+sed_raw <- read_excel(
+  here("ref", "豐坪溪河川輸砂量統計.xlsx"),
+  sheet = "工作表3"
+)
+
+sed_clean <- sed_raw |>
+  mutate(
+    date_full    = as.Date(sprintf("%04d-%02d-%02d",
+                   as.integer(year),
+                   as.integer(month),
+                   as.integer(date))),
+    SSL_expected = Discharge_CMS * Sed_Con_ppm * 0.0864,
+    flag = case_when(
+      Discharge_CMS > 500 &
+        month %in% c(1,2,3,4,5,11,12)  ~ "Q_typo",
+      Discharge_CMS > 800              ~ "Q_extreme_check",
+      Sed_Con_ppm == 0                 ~ "below_detection",
+      Sed_Con_ppm > 0 &
+        abs(Sus_Load_MTDay - SSL_expected) /
+        (SSL_expected + 0.001) > 0.15  ~ "ssl_inconsistent",
+      TRUE                             ~ "ok"
+    )
+  ) |>
+  mutate(
+    Discharge_CMS = if_else(flag == "Q_typo",
+                             Discharge_CMS / 100,
+                             Discharge_CMS),
+    flag = if_else(flag == "Q_typo", "typo_corrected", flag)
+  )
+
+cat("=== sediment_clean flag distribution ===\n")
+sed_clean |> count(flag) |>
+  mutate(pct = round(n/nrow(sed_clean)*100, 1)) |>
+  print()
+
+write_csv(sed_clean, here("data", "sediment_clean.csv"))
+cat("Saved: sediment_clean.csv\n\n")
+
+# ── BLOCK 4: Build rating_curve_params.csv ───────────────────
+
+fit_data <- sed_clean |>
+  filter(flag == "ok",
+         Discharge_CMS > 0,
+         Sus_Load_MTDay > 0) |>
+  mutate(log_Q   = log(Discharge_CMS),
+         log_SSL = log(Sus_Load_MTDay))
+
+model <- lm(log_SSL ~ log_Q, data = fit_data)
+a     <- exp(coef(model)[[1]])
+b     <- coef(model)[[2]]
+r2    <- summary(model)$r.squared
+
+cat("=== Rating curve ===\n")
+cat("a  :", round(a, 4), "\n")
+cat("b  :", round(b, 4), "\n")
+cat("R² :", round(r2, 3), "\n")
+cat("n  :", nrow(fit_data), "\n\n")
+
+rating_params <- tibble(
+  parameter   = c("a", "b", "r_squared", "n_points",
+                  "Q_min_cms", "Q_max_cms",
+                  "year_min", "year_max"),
+  value       = c(a, b, r2, nrow(fit_data),
+                  min(fit_data$Discharge_CMS),
+                  max(fit_data$Discharge_CMS),
+                  min(sed_clean$year, na.rm = TRUE),
+                  max(sed_clean$year, na.rm = TRUE)),
+  description = c(
+    "Rating curve coefficient (SSL = a * Q^b)",
+    "Rating curve exponent",
+    "R-squared of log-log regression",
+    "Number of valid observations used",
+    "Minimum Q in fitting data (cms)",
+    "Maximum Q in fitting data (cms)",
+    "First year of sediment record",
+    "Last year of sediment record"
+  )
+)
+
+write_csv(rating_params, here("data", "rating_curve_params.csv"))
+cat("Saved: rating_curve_params.csv\n\n")
+
+# ── Final inventory ──────────────────────────────────────────
+cat("=== data/ inventory ===\n")
+fs::dir_ls(here("data")) |> basename() |>
+  purrr::walk(~cat(" ", .x, "\n"))
+```

@@ -1,0 +1,391 @@
+---
+title: "Fengping River Hydropower — Exploratory Data Analysis"
+format: pdf
+editor: visual
+---
+
+# SETUP
+
+## PACKAGE
+
+```{r}
+#| message: false
+#| warning: false
+
+packages <- c(
+  "tidyverse",
+  "here",
+  "ggplot2",
+  "patchwork",
+  "scales",
+  "readxl",
+  "lubridate",
+  "zoo"
+)
+
+installed_packages <- rownames(installed.packages())
+for (pkg in packages) {
+  if (!pkg %in% installed_packages) install.packages(pkg)
+}
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+## MODULES
+
+```{r}
+#| message: false
+
+source(here("module", "hydro_climate.R"))
+source(here("module", "hydro_sediment.R"))
+source(here("module", "hydro_plot.R"))
+```
+
+## LOAD DATA
+
+```{r}
+#| message: false
+
+# Raw data (before cleaning) — for before/after comparison
+daily_raw  <- read_csv(here("data", "lishan_daily.csv"),
+                       show_col_types = FALSE)
+
+# Clean data (after NA fill)
+daily_clean <- read_csv(here("data", "lishan_daily_clean.csv"),
+                        show_col_types = FALSE)
+
+# Decadal flow (long format)
+decadal_long <- read_csv(here("data", "lishan_decadal_long.csv"),
+                         show_col_types = FALSE)
+
+# Sediment data
+sed_clean <- read_csv(here("data", "sediment_clean.csv"),
+                      show_col_types = FALSE)
+
+# Rating curve parameters
+rc_params <- read_csv(here("data", "rating_curve_params.csv"),
+                      show_col_types = FALSE)
+
+# Weir design flow (EIA Table 5.1-2)
+weir_design <- read_csv(here("data", "weir_design_flow.csv"),
+                        show_col_types = FALSE)
+```
+
+---
+
+# SECTION 1 — Daily Flow: Before vs After Cleaning
+
+## 1.1 NA distribution by year
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+#| fig-cap: "Annual NA rate in raw daily flow record (Lishan Station 01T230, 1958–2025). Grey bars show years with high missing data rates."
+
+daily_raw |>
+  mutate(year = year(date)) |>
+  group_by(year) |>
+  summarise(
+    na_pct   = mean(is.na(Q_cms)) * 100,
+    n_total  = n(),
+    .groups  = "drop"
+  ) |>
+  ggplot(aes(x = year, y = na_pct)) +
+  geom_col(aes(fill = na_pct > 50), width = 0.8, show.legend = FALSE) +
+  scale_fill_manual(values = c("FALSE" = "grey70", "TRUE" = "#D85A30")) +
+  geom_hline(yintercept = 50, linetype = "dashed",
+             colour = "grey30", linewidth = 0.4) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"),
+                     limits = c(0, 105)) +
+  labs(
+    title   = "Annual Missing Data Rate — Lishan Station Daily Flow",
+    subtitle = "Red = years with > 50% missing; dashed line = 50% threshold",
+    x = "Year", y = "NA rate (%)",
+    caption = "Source: Water Resources Agency HYDROINFO, Station 01T230"
+  ) +
+  theme_fengping()
+```
+
+## 1.2 Before vs after NA fill
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "Comparison of raw and NA-filled daily flow for a selected year (2010). Blue = original observed values; orange = filled values."
+
+# Show 2010 as example (high NA year with typhoon events)
+year_example <- 2010
+
+df_compare <- daily_clean |>
+  filter(year(date) == year_example) |>
+  mutate(
+    Q_raw    = daily_raw$Q_cms[year(daily_raw$date) == year_example],
+    Q_filled = Q_cms
+  ) |>
+  pivot_longer(
+    cols      = c(Q_raw, Q_filled),
+    names_to  = "source",
+    values_to = "Q_cms"
+  ) |>
+  mutate(source = if_else(source == "Q_raw",
+                          "Raw (with NA)", "After NA fill"))
+
+ggplot(df_compare, aes(x = date, y = Q_cms, colour = source)) +
+  geom_line(alpha = 0.75, linewidth = 0.6) +
+  scale_colour_manual(
+    values = c("Raw (with NA)" = "#888780",
+               "After NA fill" = "#1D9E75"),
+    name = NULL
+  ) +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = paste("Daily Flow Before and After NA Fill —", year_example),
+    subtitle = "Log scale; gaps in grey = original NA values filled by interpolation",
+    x = NULL, y = "Flow Q (cms, log scale)",
+    caption  = "NA fill method: linear interpolation (gap ≤ 7 days); rolling median fallback"
+  ) +
+  theme_fengping()
+```
+
+---
+
+# SECTION 2 — Long-Term Flow Variability
+
+## 2.1 Annual flow trend
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "Annual mean daily flow at Lishan Station 1958–2025 with LOESS smoother."
+
+ann_stats <- compute_annual_stats(daily_clean)
+plot_annual_flow_trend(ann_stats)
+```
+
+## 2.2 Flashiness index trend
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+#| fig-cap: "Richards-Baker Flashiness Index (RBI) annual trend. RBI > 0.4 indicates a highly flashy torrent-type stream."
+
+plot_rbi_trend(ann_stats)
+```
+
+## 2.3 Rolling 30-year non-stationarity
+
+```{r}
+#| fig-width: 10
+#| fig-height: 6
+#| fig-cap: "Rolling 30-year statistics showing potential non-stationarity in mean flow and coefficient of variation."
+
+rolling_stats <- compute_rolling_stats(ann_stats)
+plot_rolling_stats(rolling_stats)
+```
+
+## 2.4 Three-period comparison (EIA reference periods)
+
+```{r}
+#| fig-width: 8
+#| fig-height: 5
+#| fig-cap: "Distribution of ten-day average flow across the three EIA reference periods. EIA = 1959-1995; EIA Difference = 1969-2005; Current = 1983-2019."
+
+period_cols <- c(
+  "EIA: 1959–1995"             = "#F4A582",
+  "EIA_Difference: 1969–2005"  = "#92C5DE",
+  "Current: 1983–2019"         = "#A1D99B"
+)
+
+decadal_long |>
+  filter(era != "Other") |>
+  mutate(era_label = case_when(
+    era == "EIA"            ~ "EIA: 1959–1995",
+    era == "EIA_Difference" ~ "EIA_Difference: 1969–2005",
+    era == "Current"        ~ "Current: 1983–2019"
+  )) |>
+  ggplot(aes(x = era_label, y = Q_cms, fill = era_label)) +
+  geom_boxplot(alpha = 0.7, width = 0.5,
+               outlier.shape = 21, outlier.size = 1) +
+  scale_fill_manual(values = period_cols, guide = "none") +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = "Ten-Day Flow Distribution by EIA Reference Period",
+    subtitle = "Log scale; boxes show IQR; whiskers = 1.5 × IQR",
+    x = NULL, y = "Ten-day average flow Q (cms, log scale)",
+    caption  = "Source: lishan_flow.csv (Water Resources Agency)"
+  ) +
+  theme_fengping()
+```
+
+---
+
+# SECTION 3 — Sediment Data
+
+## 3.1 Sampling overview
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+#| fig-cap: "Number of sediment sampling observations per year (1959–2023). Colour indicates flag status."
+
+sed_clean |>
+  count(year, flag) |>
+  ggplot(aes(x = year, y = n, fill = flag)) +
+  geom_col(width = 0.8) +
+  scale_fill_brewer(palette = "Set2", name = "Data flag") +
+  labs(
+    title    = "Annual Sediment Sampling Frequency — Fengping Creek",
+    subtitle = "Below-detection-limit (ppm = 0) observations are retained but excluded from rating curve",
+    x = "Year", y = "Number of samples",
+    caption  = "Source: 豐坪溪河川輸砂量統計.xlsx"
+  ) +
+  theme_fengping()
+```
+
+## 3.2 SSL vs Q scatter (rating curve)
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+#| fig-cap: "Suspended sediment load versus discharge. Fitted power-law rating curve shown in orange."
+
+# Get fitted parameters
+a_val <- rc_params$value[rc_params$parameter == "a"]
+b_val <- rc_params$value[rc_params$parameter == "b"]
+r2    <- rc_params$value[rc_params$parameter == "r_squared"]
+n_pts <- rc_params$value[rc_params$parameter == "n_points"]
+
+fit_line <- data.frame(
+  Discharge_CMS = 10^seq(
+    log10(1), log10(500), length.out = 200
+  )
+) |> mutate(SSL_mt_day = a_val * Discharge_CMS^b_val)
+
+sed_clean |>
+  filter(flag == "ok") |>
+  ggplot(aes(x = Discharge_CMS, y = Sus_Load_MTDay)) +
+  geom_point(alpha = 0.6, colour = "#1D9E75", size = 2) +
+  geom_line(data = fit_line,
+            aes(x = Discharge_CMS, y = SSL_mt_day),
+            colour = "#D85A30", linewidth = 1) +
+  scale_x_log10(labels = comma) +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = "Suspended Sediment Rating Curve — Fengping Creek (1959–2023)",
+    subtitle = sprintf(
+      "SSL = %.3f × Q^%.3f  |  R² = %.3f  |  n = %d observations",
+      a_val, b_val, r2, n_pts
+    ),
+    x = "Discharge Q (cms, log scale)",
+    y = "Suspended Sediment Load SSL (MT/day, log scale)",
+    caption = paste(
+      "b = 1.51 within expected range [1.4, 2.5] for Taiwan mountain streams",
+      "\nWang & Kondolf (2014) JAWRA; Kondolf et al. (2014) Earth's Future"
+    )
+  ) +
+  theme_fengping()
+```
+
+## 3.3 Seasonal sediment pattern
+
+```{r}
+#| fig-width: 10
+#| fig-height: 4
+#| fig-cap: "Monthly distribution of sediment concentration (ppm) for observations above detection limit."
+
+sed_clean |>
+  filter(flag == "ok", Sed_Con_ppm > 0) |>
+  mutate(month_label = month(
+    as.Date(paste0("2000-", month, "-01")), label = TRUE
+  )) |>
+  ggplot(aes(x = month_label, y = Sed_Con_ppm)) +
+  geom_boxplot(fill = "#1D9E75", alpha = 0.6,
+               outlier.shape = 21, outlier.size = 1) +
+  scale_y_log10(labels = comma) +
+  labs(
+    title    = "Seasonal Pattern of Sediment Concentration",
+    subtitle = "Observations above detection limit only (ppm > 0); log scale",
+    x = "Month", y = "Sediment concentration (ppm, log scale)"
+  ) +
+  theme_fengping()
+```
+
+---
+
+# SECTION 4 — Weir Design vs Observed Flow
+
+## 4.1 Design flow vs observed decadal flow
+
+```{r}
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "Comparison of EIA design flow assumptions (Table 5.1-2) against observed decadal flow at Lishan Station. Red = EIA design inflow; grey = observed."
+
+# Observed decadal median by tendays
+obs_median <- decadal_long |>
+  filter(era == "Current") |>
+  group_by(tendays) |>
+  summarise(Q_obs_median = median(Q_cms, na.rm = TRUE),
+            Q_obs_p25    = quantile(Q_cms, 0.25, na.rm = TRUE),
+            Q_obs_p75    = quantile(Q_cms, 0.75, na.rm = TRUE),
+            .groups = "drop")
+
+weir_design |>
+  left_join(obs_median, by = "tendays") |>
+  ggplot(aes(x = tendays)) +
+  geom_ribbon(aes(ymin = Q_obs_p25, ymax = Q_obs_p75),
+              fill = "grey70", alpha = 0.4) +
+  geom_line(aes(y = Q_obs_median, colour = "Observed (1983–2019 median)"),
+            linewidth = 0.8) +
+  geom_line(aes(y = W1_before_cms,  colour = "EIA design: W1 inflow"),
+            linewidth = 0.9, linetype = "dashed") +
+  geom_line(aes(y = W1_after_cms,   colour = "EIA design: W1 e-flow release"),
+            linewidth = 0.7, linetype = "dotted") +
+  scale_colour_manual(
+    values = c(
+      "Observed (1983–2019 median)"  = "#888780",
+      "EIA design: W1 inflow"        = "#D85A30",
+      "EIA design: W1 e-flow release"= "#1D4E89"
+    ),
+    name = NULL
+  ) +
+  scale_x_continuous(
+    breaks = seq(3, 36, 3),
+    labels = paste0("M", 1:12)
+  ) +
+  labs(
+    title    = "EIA Design Flow vs Observed Flow — W1 (Lower Weir)",
+    subtitle = "Grey ribbon = IQR of observed decadal flow (1983–2019)",
+    x = "Ten-day period", y = "Flow Q (cms)",
+    caption  = "EIA design values: Table 5.1-2, Fengping Creek EIA Report (1999)"
+  ) +
+  theme_fengping()
+```
+
+## 4.2 Diversion rate by season
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "Designed weir diversion rate (%) by ten-day period. W1 and W2 show extreme capture rates during dry season."
+
+weir_design |>
+  select(tendays, W1 = W1_capture_rate, W2 = W2_capture_rate) |>
+  pivot_longer(-tendays, names_to = "weir", values_to = "capture_rate") |>
+  ggplot(aes(x = tendays, y = capture_rate * 100, fill = weir)) +
+  geom_col(position = "dodge", width = 0.7, alpha = 0.8) +
+  geom_hline(yintercept = 95, linetype = "dashed",
+             colour = "#D85A30", linewidth = 0.5) +
+  scale_fill_manual(values = c(W1 = "#1D9E75", W2 = "#D85A30"),
+                    name = "Weir") +
+  scale_x_continuous(breaks = seq(3, 36, 3),
+                     labels = paste0("M", 1:12)) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"),
+                     limits = c(0, 105)) +
+  labs(
+    title    = "Designed Diversion Rate by Ten-Day Period",
+    subtitle = "Dashed line = 95% capture rate; dry season shows near-total diversion",
+    x = "Ten-day period", y = "Capture rate (%)",
+    caption  = "Source: EIA Table 5.1-2; capture rate = (before - after) / before"
+  ) +
+  theme_fengping()
+```

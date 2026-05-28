@@ -1,0 +1,97 @@
+---
+title: "weir_design_data_handle"
+format: html
+editor: visual
+---
+
+```{r}
+# ── 先建立 lishan_daily_clean.csv ────────────────────────────
+daily_raw <- read_csv(here("data", "lishan_daily.csv"),
+                      show_col_types = FALSE)
+
+daily_clean <- daily_raw |>
+  arrange(date) |>
+  mutate(
+    flag = case_when(
+      is.na(Q_cms)   ~ "missing",
+      Q_cms < 0      ~ "negative",
+      Q_cms > 1500   ~ "extreme_high",
+      TRUE           ~ "ok"
+    ),
+    # Linear interpolation for gaps <= 7 days
+    Q_filled = zoo::na.approx(
+      if_else(flag == "ok", Q_cms, NA_real_),
+      maxgap = 7, na.rm = FALSE
+    ),
+    # Rolling median fallback for long gaps
+    Q_roll = zoo::rollapply(
+      Q_filled, width = 30, FUN = median,
+      na.rm = TRUE, fill = NA, align = "center"
+    ),
+    Q_filled = if_else(is.na(Q_filled) & !is.na(Q_roll),
+                       Q_roll, Q_filled),
+    # Final fallback: overall median
+    Q_filled = if_else(is.na(Q_filled),
+                       median(Q_cms, na.rm = TRUE),
+                       Q_filled),
+    was_filled = flag == "missing"
+  ) |>
+  rename(Q_cms_raw = Q_cms, Q_cms = Q_filled) |>
+  select(date, Q_cms_raw, Q_cms, was_filled, flag)
+
+cat("daily_clean built:", nrow(daily_clean), "rows\n")
+cat("Still NA:", sum(is.na(daily_clean$Q_cms)), "\n")
+
+write_csv(daily_clean, here("data", "lishan_daily_clean.csv"))
+cat("Saved: lishan_daily_clean.csv\n\n")
+
+# ── 現在重跑 cross-validation ─────────────────────────────────
+cross_check <- sed_with_date |>
+  filter(flag %in% c("ok", "typo_corrected", "ssl_inconsistent")) |>
+  left_join(
+    daily_clean |> select(date, Q_daily = Q_cms, Q_raw = Q_cms_raw),
+    by = c("date_full" = "date")
+  ) |>
+  mutate(
+    Q_diff_pct = if_else(
+      !is.na(Q_raw) & Q_raw > 0,
+      (Discharge_CMS - Q_raw) / Q_raw * 100,
+      NA_real_
+    ),
+    matched = !is.na(Q_raw)
+  )
+
+cat("=== Cross-validation summary ===\n")
+cat("Sediment obs used            :", nrow(cross_check), "\n")
+cat("Matched to daily record      :", sum(cross_check$matched), "\n")
+cat("No match in daily record     :", sum(!cross_check$matched), "\n\n")
+
+cat("=== Q difference (sediment vs daily raw) ===\n")
+cross_check |>
+  filter(matched) |>
+  summarise(
+    n               = n(),
+    mean_diff_pct   = round(mean(Q_diff_pct, na.rm = TRUE), 1),
+    median_diff_pct = round(median(Q_diff_pct, na.rm = TRUE), 1),
+    sd_diff_pct     = round(sd(Q_diff_pct, na.rm = TRUE), 1),
+    within_10pct    = round(mean(abs(Q_diff_pct) < 10,  na.rm = TRUE)*100, 1),
+    within_30pct    = round(mean(abs(Q_diff_pct) < 30,  na.rm = TRUE)*100, 1)
+  ) |>
+  print()
+
+cat("\n=== Largest discrepancies (|diff| > 50%) ===\n")
+cross_check |>
+  filter(matched, abs(Q_diff_pct) > 50) |>
+  select(date_full, year, month,
+         Q_sed = Discharge_CMS, Q_raw, Q_diff_pct, flag) |>
+  arrange(desc(abs(Q_diff_pct))) |>
+  print(n = 20)
+
+cat("\n=== Unmatched years ===\n")
+cross_check |>
+  filter(!matched) |>
+  count(year) |>
+  print(n = Inf)
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).

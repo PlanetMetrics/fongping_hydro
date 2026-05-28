@@ -1,0 +1,39 @@
+---
+title: "decadeal_long_handle"
+format: html
+editor: visual
+---
+
+## Quarto
+
+```{r}
+decadal_raw <- read_csv(here("data", "lishan_flow.csv"),
+                        show_col_types = FALSE)
+
+decadal_long <- decadal_raw |>
+  pivot_longer(
+    cols      = -tendays,
+    names_to  = "year",
+    values_to = "Q_cms"
+  ) |>
+  mutate(
+    year   = as.integer(year),
+    month  = ceiling(tendays / 3L),
+    period = case_when(
+      tendays %% 3 == 1 ~ "early",
+      tendays %% 3 == 2 ~ "mid",
+      tendays %% 3 == 0 ~ "late"
+    ),
+    era = case_when(
+      year >= 1959 & year <= 1995 ~ "EIA",
+      year >= 1969 & year <= 2005 ~ "EIA_Difference",
+      year >= 1983 & year <= 2019 ~ "Current",
+      TRUE ~ "Other"
+    )
+  ) |>
+  select(year, month, period, tendays, Q_cms, era)
+
+write_csv(decadal_long, here("data", "lishan_decadal_long.csv"))
+cat("Saved:", nrow(decadal_long), "rows\n")
+
+```
